@@ -1,0 +1,1335 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Markdown Reader</title>
+  <script src="assets/vendor/marked.min.js"></script>
+  <link rel="stylesheet" href="assets/fonts/google-fonts.css" />
+  <style>
+    :root {
+      --page-w: 210mm;
+      --page-h: 297mm;
+      --page-pt: 16mm;
+      --page-pb: 16mm;
+      --page-pl: 14mm;
+      --page-pr: 14mm;
+      --page-font-size: 12pt;
+      --page-font-family: 'Noto Serif TC', 'Microsoft JhengHei', serif;
+      --reading-cols: 1;
+      --reading-pad: 24px;
+    }
+    [data-theme="dark"] {
+      --bg: #1b2026; --bg-surface: #232a32; --bg-elevated: #2a333d;
+      --ink: #e4e8ec; --ink-dim: #8a939e;
+      --accent: #4ca4e0; --accent-glow: rgba(76,164,224,0.18);
+      --border: #3a434e; --page-bg: #fff; --page-ink: #1f2933;
+      --reading-bg: #1e2530; --reading-ink: #d8dee6; --reading-link: #64b5f6;
+    }
+    [data-theme="light"] {
+      --bg: #f0f2f5; --bg-surface: #ffffff; --bg-elevated: #e8ebef;
+      --ink: #1f2933; --ink-dim: #5b6670;
+      --accent: #1a73c7; --accent-glow: rgba(26,115,199,0.12);
+      --border: #c3ccd4; --page-bg: #fff; --page-ink: #1f2933;
+      --reading-bg: #ffffff; --reading-ink: #1f2933; --reading-link: #1565c0;
+    }
+    [data-theme="sepia"] {
+      --bg: #f4ead5; --bg-surface: #faf3e4; --bg-elevated: #ede2cc;
+      --ink: #5b4636; --ink-dim: #8a7968;
+      --accent: #b47d4a; --accent-glow: rgba(180,125,74,0.15);
+      --border: #d4c4a8; --page-bg: #fff; --page-ink: #1f2933;
+      --reading-bg: #faf3e4; --reading-ink: #5b4636; --reading-link: #8b5e3c;
+    }
+    [data-theme="dim"] {
+      --bg: #282c34; --bg-surface: #2f3440; --bg-elevated: #363c4a;
+      --ink: #bfc7d5; --ink-dim: #7a8394;
+      --accent: #82aaff; --accent-glow: rgba(130,170,255,0.15);
+      --border: #4a5265; --page-bg: #fff; --page-ink: #1f2933;
+      --reading-bg: #2a2f3a; --reading-ink: #c0c8d8; --reading-link: #82aaff;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; overflow: hidden; }
+    body {
+      font-family: -apple-system, "Segoe UI", "Microsoft JhengHei", sans-serif;
+      color: var(--ink); background: var(--bg);
+    }
+    .shell { display: flex; flex-direction: column; height: 100vh; }
+
+    /* ── Toolbar ── */
+    .toolbar {
+      flex-shrink: 0; display: flex; align-items: center; gap: 4px;
+      padding: 4px 8px; background: var(--bg-surface);
+      border-bottom: 1px solid var(--border); flex-wrap: wrap; z-index: 10;
+    }
+    .toolbar .brand { font-weight: 700; font-size: 0.88rem; margin-right: 4px; white-space: nowrap; }
+    .sep { width: 1px; height: 18px; background: var(--border); margin: 0 2px; flex-shrink: 0; }
+    .tb-group { display: inline-flex; align-items: center; gap: 2px; }
+    .tb-label { font-size: 0.72rem; color: var(--ink-dim); white-space: nowrap; }
+    .toolbar-spacer { flex: 1; }
+    select {
+      background: var(--bg-elevated); color: var(--ink);
+      border: 1px solid var(--border); border-radius: 4px;
+      padding: 2px 4px; font-size: 0.74rem; cursor: pointer;
+    }
+    button {
+      background: var(--bg-elevated); color: var(--ink);
+      border: 1px solid var(--border); border-radius: 4px;
+      padding: 2px 6px; font-size: 0.74rem; cursor: pointer; white-space: nowrap;
+      transition: background 0.12s, border-color 0.12s;
+    }
+    button:hover { background: var(--border); border-color: var(--accent); }
+    button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+    button.primary:hover { filter: brightness(1.12); }
+    .tb-input {
+      width: 42px; text-align: center;
+      background: var(--bg-elevated); color: var(--ink);
+      border: 1px solid var(--border); border-radius: 4px;
+      padding: 2px 3px; font-size: 0.74rem; font-variant-numeric: tabular-nums;
+    }
+    .tb-input-sm { width: 50px; }
+    .tb-input-fs { width: 76px; }
+    .page-info { font-size: 0.74rem; color: var(--ink-dim); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+    /* ── Custom size ── */
+    .custom-size-row { display: inline-flex; align-items: center; gap: 2px; }
+    .custom-size-row input { width: 48px; }
+
+    /* ── Main ── */
+    .main { flex: 1; display: flex; overflow: hidden; position: relative; }
+
+    /* ── Input Panel ── */
+    .input-panel {
+      width: 360px; min-width: 360px;
+      display: flex; flex-direction: column;
+      background: var(--bg-surface);
+      border-right: 1px solid var(--border);
+      transition: margin-left 0.25s ease; z-index: 5;
+    }
+    .input-panel.collapsed { margin-left: -360px; }
+    .input-header {
+      display: flex; align-items: center;
+      padding: 5px 8px; border-bottom: 1px solid var(--border); gap: 4px;
+    }
+    .input-tabs {
+      display: inline-flex; background: var(--bg);
+      border-radius: 4px; overflow: hidden; border: 1px solid var(--border);
+    }
+    .input-tabs button {
+      border: none; border-radius: 0; padding: 3px 10px;
+      font-size: 0.76rem; background: transparent; color: var(--ink-dim);
+    }
+    .input-tabs button.active { background: var(--accent); color: #fff; }
+    .input-header .spacer { flex: 1; }
+    .input-body { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+
+    .paste-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+    .paste-area textarea {
+      width: 100%; flex: 1 1 auto; min-height: 0;
+      resize: none; border: 0; outline: 0; padding: 10px;
+      background: var(--bg); color: var(--ink);
+      font-family: "Consolas", "Cascadia Code", "Courier New", monospace;
+      font-size: 0.86rem; line-height: 1.6; tab-size: 2;
+    }
+    .paste-area textarea::placeholder { color: var(--ink-dim); opacity: 0.6; }
+    .paste-actions { display: flex; gap: 6px; padding: 5px 8px; border-top: 1px solid var(--border); }
+    .paste-actions button { flex: 1; }
+
+    .upload-area {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 12px; padding: 16px;
+    }
+    .drop-zone {
+      width: 100%; max-width: 280px; aspect-ratio: 4/3;
+      border: 2px dashed var(--border); border-radius: 10px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 8px; cursor: pointer; transition: border-color 0.2s, background 0.2s;
+      background: var(--bg); position: relative;
+    }
+    .drop-zone:hover, .drop-zone.dragover { border-color: var(--accent); background: var(--accent-glow); }
+    .drop-zone .icon { font-size: 2rem; opacity: 0.4; }
+    .drop-zone .hint { font-size: 0.82rem; color: var(--ink-dim); text-align: center; }
+    .drop-zone input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+    .file-name { font-size: 0.78rem; color: var(--accent); word-break: break-all; text-align: center; }
+    .upload-actions { display: flex; gap: 6px; width: 100%; max-width: 280px; }
+    .upload-actions button { flex: 1; }
+
+    /* ── Reader ── */
+    .reader {
+      flex: 1;
+      overflow: auto;
+      background: var(--bg);
+    }
+    .reader-content {
+      min-height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    /* Scroll mode */
+    .scroll-pages {
+      display: flex; flex-direction: column; gap: 16px;
+      align-items: center; width: 100%; padding: 20px 0;
+    }
+
+    /* ── Book view ── */
+    .book-view {
+      flex: 1; width: 100%;
+      display: flex; align-items: center; justify-content: center;
+      position: relative; min-height: 0;
+    }
+    .book-stage {
+      display: flex; align-items: flex-start; justify-content: center;
+    }
+    .book-nav-btn {
+      width: 38px; height: 38px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.95rem; z-index: 20;
+      position: absolute; top: 50%; transform: translateY(-50%);
+      box-shadow: 0 3px 10px rgba(0,0,0,0.25);
+      background: var(--bg-surface); border: 1px solid var(--border);
+      opacity: 0.9; transition: opacity 0.2s, background 0.15s;
+    }
+    .book-nav-btn:hover { opacity: 1; background: var(--accent); color: #fff; border-color: var(--accent); }
+    #prevSpread { left: 14px; }
+    #nextSpread { right: 14px; }
+
+    /* ── Page ── */
+    .page-wrapper { flex-shrink: 0; }
+    .page {
+      width: var(--page-w); height: var(--page-h);
+      background: var(--page-bg); color: var(--page-ink);
+      border-radius: 3px; box-shadow: 0 4px 18px rgba(0,0,0,0.28);
+      position: relative; overflow: hidden;
+    }
+    .page-content {
+      position: absolute; inset: 0;
+      padding: var(--page-pt) var(--page-pr) var(--page-pb) var(--page-pl);
+      overflow: hidden;
+      font-family: var(--page-font-family);
+      font-size: var(--page-font-size);
+      line-height: 1.55;
+    }
+    .page-number {
+      position: absolute; bottom: 8mm; right: 12mm;
+      font-size: 10pt; color: #8a939e;
+    }
+    .page h1,.page h2,.page h3,.page h4,.page h5,.page h6 { margin-top:.6em; margin-bottom:.35em; line-height:1.25; }
+    .page ol,.page ul { padding-left:1.8em; margin-top:.35em; margin-bottom:.35em; }
+    .page p,.page li,.page pre,.page blockquote,.page table { margin-top:.35em; margin-bottom:.35em; }
+    .page pre,.page code { font-family:"Consolas","Courier New",monospace; }
+    .page pre { background:#f4f7f9; border:1px solid #d4dee8; border-radius:6px; padding:9px; overflow-y:auto; max-height:45%; white-space:pre-wrap; word-wrap:break-word; }
+    .page blockquote { border-left:4px solid #c5d3de; padding-left:10px; color:#3b4b58; }
+    .page table { width:100%; border-collapse:collapse; font-size:10pt; }
+    .page th,.page td { border:1px solid #cdd7df; padding:5px; vertical-align:top; }
+    .page img { max-width:100%; max-height:60%; object-fit:contain; display:block; margin:.3em auto; }
+
+    /* ── Slide animation (shared single & dual) ── */
+    .slide-viewport { overflow: hidden; position: relative; }
+    .slide-track {
+      display: flex;
+      transition: transform 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+      will-change: transform;
+    }
+    .slide-track > * { flex-shrink: 0; }
+    .spread-frame { display: flex; flex-shrink: 0; }
+
+    /* ── Pure reading view ── */
+    .reading-view {
+      width: 100%; flex: 1; overflow-x: auto; overflow-y: hidden;
+    }
+    .reading-view.snap-mode {
+      overflow: hidden;
+    }
+    .reading-view.dragging { user-select: none; }
+    .reader.reading-active { overflow: hidden; }
+    .reader.reading-active .reader-content { height: 100%; }
+
+    /* Columns mode (shared by smooth & snap) */
+    .reading-content {
+      height: 100%;
+      column-count: var(--reading-cols, 1);
+      column-gap: 0px;
+      column-rule: 1px solid var(--border);
+      column-fill: auto;
+      padding: 0;
+      font-family: var(--page-font-family);
+      font-size: var(--page-font-size);
+      line-height: 1.65;
+      color: var(--reading-ink, var(--ink));
+      background: var(--reading-bg, var(--bg));
+    }
+    /* Inner wrapper for padding (so column-width = view width exactly) */
+    .reading-content-inner {
+      padding: var(--reading-pad, 24px);
+    }
+    .reading-content a { color: var(--reading-link, var(--accent)); text-decoration: underline; text-underline-offset: 2px; }
+    .reading-content a:hover { opacity: 0.8; }
+    .reading-content h1,.reading-content h2,.reading-content h3,
+    .reading-content h4,.reading-content h5,.reading-content h6 {
+      margin-top:.8em; margin-bottom:.4em; line-height:1.3; break-after:avoid;
+    }
+    .reading-content ol,.reading-content ul { padding-left:1.8em; margin-top:.4em; margin-bottom:.4em; }
+    .reading-content p,.reading-content li,.reading-content pre,
+    .reading-content blockquote,.reading-content table { margin-top:.4em; margin-bottom:.4em; }
+    .reading-content pre,.reading-content code { font-family:"Consolas","Courier New",monospace; }
+    .reading-content pre {
+      background: var(--bg-elevated); border: 1px solid var(--border);
+      border-radius: 6px; padding: 9px; overflow-y: auto; break-inside: avoid;
+      white-space: pre-wrap; word-wrap: break-word;
+    }
+    .reading-content blockquote { border-left:4px solid var(--accent); padding-left:10px; color: var(--ink-dim); }
+    .reading-content table { width:100%; border-collapse:collapse; font-size:0.9em; break-inside:avoid; }
+    .reading-content th,.reading-content td { border:1px solid var(--border); padding:5px; }
+    .reading-content img { max-width:100%; display:block; margin:.5em auto; break-inside:avoid; }
+
+    /* ── Misc ── */
+    .empty-state {
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      flex:1; width:100%; color:var(--ink-dim); gap:10px; text-align:center;
+    }
+    .empty-state .big-icon { font-size:3rem; opacity:0.25; }
+    .empty-state p { font-size:0.88rem; }
+    .hidden { display:none !important; }
+    .measure-zone { position:fixed; left:-99999px; top:0; visibility:hidden; pointer-events:none; }
+
+    @media print {
+      .toolbar, .input-panel, .book-nav-btn { display:none !important; }
+      html,body,.shell,.main,.reader,.reader-content,
+      .scroll-pages,.book-view,.reading-view,.reading-content {
+        height:auto; overflow:visible; background:#fff;
+        display:block; padding:0; margin:0;
+      }
+      .reading-content { column-count:1; color:#1f2933; background:#fff; }
+      .page-wrapper { transform:none !important; width:auto !important; height:auto !important; }
+      .page {
+        width:var(--page-w); height:var(--page-h);
+        background:#fff; color:#1f2933;
+        border:0; border-radius:0; box-shadow:none;
+        page-break-after:always; overflow:visible;
+      }
+      .page-content {
+        overflow:visible; position:relative; height:auto; max-height:none;
+        font-family: var(--page-font-family);
+        font-size: var(--page-font-size);
+        padding: var(--page-pt) var(--page-pr) var(--page-pb) var(--page-pl);
+      }
+      .page pre { max-height:none; overflow:visible; white-space:pre-wrap; word-wrap:break-word; }
+      .page table { page-break-inside:auto; }
+    }
+  </style>
+</head>
+<body>
+<div class="shell">
+
+  <header class="toolbar">
+    <span class="brand">Markdown Reader</span>
+    <div class="sep"></div>
+    <button id="togglePanel" title="顯示/隱藏輸入面板">&#9776;</button>
+    <div class="sep"></div>
+
+    <!-- Mode -->
+    <div class="tb-group">
+      <span class="tb-label">模式</span>
+      <select id="readMode">
+        <option value="scroll">逐頁捲動</option>
+        <option value="book-2">雙頁翻閱</option>
+        <option value="book-1">單頁閱讀</option>
+        <option value="reading">純閱讀</option>
+      </select>
+    </div>
+    <div class="sep" id="sepPaper"></div>
+
+    <!-- Paper-mode controls -->
+    <div class="tb-group" id="grpOrientation">
+      <span class="tb-label">方向</span>
+      <select id="orientation">
+        <option value="portrait">直向</option>
+        <option value="landscape">橫向</option>
+      </select>
+    </div>
+    <div class="tb-group" id="grpPaper">
+      <span class="tb-label">紙張</span>
+      <select id="pageSize">
+        <option value="A4" selected>A4</option>
+        <option value="A3">A3</option>
+        <option value="B5">B5</option>
+        <option value="Letter">Letter</option>
+        <option value="Legal">Legal</option>
+        <option value="custom">自訂...</option>
+      </select>
+    </div>
+    <div class="tb-group custom-size-row hidden" id="customSizeRow">
+      <span class="tb-label">寬</span>
+      <input class="tb-input" id="customW" type="number" min="50" max="600" value="210" />
+      <span class="tb-label">× 高</span>
+      <input class="tb-input" id="customH" type="number" min="50" max="900" value="297" />
+      <span class="tb-label">mm(直向)</span>
+    </div>
+
+    <div class="tb-group" id="grpMargin">
+      <span class="tb-label">邊界cm</span>
+      <span class="tb-label" style="opacity:.7">上</span>
+      <input class="tb-input tb-input-sm" id="marginTop" type="number" step="0.1" min="0" max="8" value="1.6" />
+      <span class="tb-label" style="opacity:.7">下</span>
+      <input class="tb-input tb-input-sm" id="marginBottom" type="number" step="0.1" min="0" max="8" value="1.6" />
+      <span class="tb-label" style="opacity:.7">左</span>
+      <input class="tb-input tb-input-sm" id="marginLeft" type="number" step="0.1" min="0" max="8" value="1.4" />
+      <span class="tb-label" style="opacity:.7">右</span>
+      <input class="tb-input tb-input-sm" id="marginRight" type="number" step="0.1" min="0" max="8" value="1.4" />
+    </div>
+    <div class="sep" id="sepZoom"></div>
+    <div class="tb-group" id="grpZoom">
+      <span class="tb-label">縮放</span>
+      <button id="zoomOut" title="縮小">&#x2212;</button>
+      <input id="zoomInput" class="tb-input" type="text" value="FIT" title="輸入縮放百分比" />
+      <button id="zoomIn" title="放大">&#x2b;</button>
+      <button id="zoomFit" title="自適應" style="font-size:0.7rem;">FIT</button>
+    </div>
+
+    <!-- Reading-mode controls -->
+    <div class="sep hidden" id="sepReading"></div>
+    <div class="tb-group hidden" id="grpColumns">
+      <span class="tb-label">欄數</span>
+      <select id="readingCols">
+        <option value="1">1 欄</option>
+        <option value="2">2 欄</option>
+        <option value="3">3 欄</option>
+        <option value="4">4 欄</option>
+      </select>
+    </div>
+    <div class="tb-group hidden" id="grpReadPad">
+      <span class="tb-label">邊距</span>
+      <input class="tb-input" id="readingPad" type="number" min="0" max="120" value="24" />
+      <span class="tb-label">px</span>
+    </div>
+    <div class="tb-group hidden" id="grpReadScroll">
+      <span class="tb-label">捲動</span>
+      <select id="readingScrollMode">
+        <option value="smooth">平滑滾動</option>
+        <option value="snap">翻頁式</option>
+      </select>
+    </div>
+
+    <div class="sep"></div>
+
+    <!-- Shared controls -->
+    <div class="tb-group" id="grpFont">
+      <span class="tb-label">字型</span>
+      <select id="fontFamily">
+        <option value="'Noto Serif TC','Microsoft JhengHei',serif">思源宋體</option>
+        <option value="'Noto Sans TC','Microsoft JhengHei',sans-serif">思源黑體</option>
+        <option value="'Microsoft JhengHei',sans-serif">微軟正黑體</option>
+        <option value="DFKai-SB,serif">標楷體</option>
+        <option value="PMingLiU,serif">新細明體</option>
+        <option value="Arial,Helvetica,sans-serif">Arial</option>
+        <option value="Consolas,'Courier New',monospace">Consolas</option>
+      </select>
+    </div>
+    <div class="tb-group" id="grpFontSize">
+      <span class="tb-label">字號(px/em/pt)</span>
+      <input class="tb-input tb-input-fs" id="fontSizeInput" type="text" value="12pt" placeholder="如 14px, 1.2em" />
+    </div>
+    <div class="sep"></div>
+    <div class="tb-group">
+      <span class="tb-label">主題</span>
+      <select id="themeSelect">
+        <option value="dark">Dark</option>
+        <option value="light">Light</option>
+        <option value="sepia">Sepia</option>
+        <option value="dim">Dim</option>
+      </select>
+    </div>
+
+    <div class="sep"></div>
+    <button id="resetDefaults" title="恢復預設值" style="font-size:0.7rem;">&#8634; 預設</button>
+
+    <div class="toolbar-spacer"></div>
+    <span id="pageInfo" class="page-info"></span>
+    <button id="printBtn" class="primary">&#128424; 列印</button>
+  </header>
+
+  <div class="main">
+    <aside class="input-panel" id="inputPanel">
+      <div class="input-header">
+        <div class="input-tabs" id="inputTabs">
+          <button data-tab="paste" class="active">貼上語法</button>
+          <button data-tab="upload">上傳檔案</button>
+        </div>
+        <div class="spacer"></div>
+        <button id="sampleBtn" style="font-size:0.7rem;">範例</button>
+      </div>
+      <div class="input-body">
+        <div class="paste-area" id="pasteTab">
+          <textarea id="mdInput" placeholder="在此貼上或輸入 Markdown 語法..." spellcheck="false"></textarea>
+          <div class="paste-actions">
+            <button id="renderPaste" class="primary">套用並預覽</button>
+          </div>
+        </div>
+        <div class="upload-area hidden" id="uploadTab">
+          <div class="drop-zone" id="dropZone">
+            <div class="icon">&#128196;</div>
+            <div class="hint">拖曳 .md / .txt 到此<br>或點擊選取</div>
+            <input id="fileInput" type="file" accept=".md,.markdown,.txt,text/markdown,text/plain" />
+          </div>
+          <div id="fileName" class="file-name"></div>
+          <div class="upload-actions">
+            <button id="renderUpload" class="primary">套用並預覽</button>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <section class="reader" id="reader">
+      <div class="reader-content" id="readerContent">
+        <div id="emptyState" class="empty-state">
+          <div class="big-icon">&#128214;</div>
+          <p>從左側面板貼上 Markdown 或上傳檔案，<br>按「套用並預覽」開始閱讀。</p>
+        </div>
+        <div id="scrollView" class="scroll-pages hidden"></div>
+        <div id="bookView" class="book-view hidden">
+          <button class="book-nav-btn" id="prevSpread" title="上一頁">&#9664;</button>
+          <div id="bookStage" class="book-stage"></div>
+          <button class="book-nav-btn" id="nextSpread" title="下一頁">&#9654;</button>
+        </div>
+        <div id="readingView" class="reading-view hidden">
+          <div id="readingContent" class="reading-content"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div id="measureZone" class="measure-zone"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  var $ = function(id) { return document.getElementById(id); };
+
+  var mdInput       = $("mdInput");
+  var fileInput      = $("fileInput");
+  var readMode       = $("readMode");
+  var orientation    = $("orientation");
+  var pageSizeEl     = $("pageSize");
+  var customSizeRow  = $("customSizeRow");
+  var customW        = $("customW");
+  var customH        = $("customH");
+  var togglePanel    = $("togglePanel");
+  var inputPanel     = $("inputPanel");
+  var inputTabs      = $("inputTabs");
+  var pasteTab       = $("pasteTab");
+  var uploadTab      = $("uploadTab");
+  var renderPaste    = $("renderPaste");
+  var renderUpload   = $("renderUpload");
+  var sampleBtn      = $("sampleBtn");
+  var printBtn       = $("printBtn");
+  var zoomInBtn      = $("zoomIn");
+  var zoomOutBtn     = $("zoomOut");
+  var zoomFitBtn     = $("zoomFit");
+  var zoomInput      = $("zoomInput");
+  var themeSelect    = $("themeSelect");
+  var pageInfo       = $("pageInfo");
+  var emptyState     = $("emptyState");
+  var scrollView     = $("scrollView");
+  var bookView       = $("bookView");
+  var bookStage      = $("bookStage");
+  var prevSpread     = $("prevSpread");
+  var nextSpread     = $("nextSpread");
+  var reader         = $("reader");
+  var dropZone       = $("dropZone");
+  var fileNameEl     = $("fileName");
+  var measureZone    = $("measureZone");
+  var readingView    = $("readingView");
+  var readingContent = $("readingContent");
+
+  /* Toolbar groups */
+  var grpOrientation = $("grpOrientation");
+  var grpPaper       = $("grpPaper");
+  var grpMargin      = $("grpMargin");
+  var grpZoom        = $("grpZoom");
+  var sepPaper       = $("sepPaper");
+  var sepZoom        = $("sepZoom");
+  var grpColumns     = $("grpColumns");
+  var grpReadPad     = $("grpReadPad");
+  var sepReading     = $("sepReading");
+  var readingCols    = $("readingCols");
+  var readingPad     = $("readingPad");
+  var readingScrollMode = $("readingScrollMode");
+  var grpReadScroll  = $("grpReadScroll");
+  var resetDefaults  = $("resetDefaults");
+  var fontFamily     = $("fontFamily");
+  var fontSizeInput  = $("fontSizeInput");
+
+  /* Margin inputs */
+  var mTop    = $("marginTop");
+  var mBottom = $("marginBottom");
+  var mLeft   = $("marginLeft");
+  var mRight  = $("marginRight");
+
+  var pages = [];
+  var spreadStart = 0;
+  var autoFit = true;
+  var manualScale = 1;
+  var uploadedText = "";
+  var currentMd = "";
+  var turnAnimating = false;
+  var wheelLocked = false;
+
+  var PAGE_SIZES = {
+    A3: { w: 297, h: 420 }, A4: { w: 210, h: 297 },
+    B5: { w: 176, h: 250 }, Letter: { w: 216, h: 279 }, Legal: { w: 216, h: 356 }
+  };
+
+  /* ── Helpers ── */
+  function toggleEl(el, show) {
+    if (show) el.classList.remove("hidden");
+    else el.classList.add("hidden");
+  }
+
+  function getPageDimsMM() {
+    var dims, sel = pageSizeEl.value;
+    if (sel === "custom") {
+      dims = { w: parseInt(customW.value) || 210, h: parseInt(customH.value) || 297 };
+    } else {
+      dims = PAGE_SIZES[sel] || PAGE_SIZES.A4;
+    }
+    if (orientation.value === "landscape") {
+      return { w: Math.max(dims.w, dims.h), h: Math.min(dims.w, dims.h) };
+    }
+    return { w: Math.min(dims.w, dims.h), h: Math.max(dims.w, dims.h) };
+  }
+
+  function getPageDimsPx() {
+    var mm = getPageDimsMM();
+    return { w: mm.w / 25.4 * 96, h: mm.h / 25.4 * 96 };
+  }
+
+  function applyPageCSS() {
+    var mm = getPageDimsMM();
+    var r = document.documentElement;
+    r.style.setProperty("--page-w", mm.w + "mm");
+    r.style.setProperty("--page-h", mm.h + "mm");
+  }
+
+  function applyMarginCSS() {
+    var r = document.documentElement;
+    r.style.setProperty("--page-pt", (parseFloat(mTop.value) || 1.6) * 10 + "mm");
+    r.style.setProperty("--page-pb", (parseFloat(mBottom.value) || 1.6) * 10 + "mm");
+    r.style.setProperty("--page-pl", (parseFloat(mLeft.value) || 1.4) * 10 + "mm");
+    r.style.setProperty("--page-pr", (parseFloat(mRight.value) || 1.4) * 10 + "mm");
+  }
+
+  function applyFontCSS() {
+    var r = document.documentElement;
+    r.style.setProperty("--page-font-size", fontSizeInput.value || "12pt");
+    r.style.setProperty("--page-font-family", fontFamily.value);
+  }
+
+  function applyReadingCSS() {
+    var r = document.documentElement;
+    r.style.setProperty("--reading-cols", readingCols.value);
+    r.style.setProperty("--reading-pad", (parseInt(readingPad.value) || 24) + "px");
+  }
+
+  /* ── marked ── */
+  marked.setOptions({ gfm: true, breaks: true });
+
+  /* ── Mode helpers ── */
+  function isBookMode() { return readMode.value === "book-1" || readMode.value === "book-2"; }
+  function isDoubleBook() { return readMode.value === "book-2"; }
+  function isSingleSlide() { return readMode.value === "book-1"; }
+  function isReading() { return readMode.value === "reading"; }
+  function pageStep() { return isDoubleBook() ? 2 : 1; }
+
+  /* ── Toolbar visibility ── */
+  function updateToolbar() {
+    var rd = isReading();
+    toggleEl(sepPaper, !rd);
+    toggleEl(grpOrientation, !rd);
+    toggleEl(grpPaper, !rd);
+    toggleEl(grpMargin, !rd);
+    toggleEl(sepZoom, !rd);
+    toggleEl(grpZoom, !rd);
+    toggleEl(printBtn, !rd);
+    if (!rd) toggleEl(customSizeRow, pageSizeEl.value === "custom");
+
+    toggleEl(sepReading, rd);
+    toggleEl(grpColumns, rd);
+    toggleEl(grpReadPad, rd);
+    toggleEl(grpReadScroll, rd);
+  }
+
+  /* ── Theme ── */
+  themeSelect.addEventListener("change", function() {
+    document.documentElement.dataset.theme = themeSelect.value;
+  });
+
+  /* ── Page size / margin / font listeners ── */
+  pageSizeEl.addEventListener("change", function() {
+    customSizeRow.classList.toggle("hidden", pageSizeEl.value !== "custom");
+    if (pages.length) rebuild();
+  });
+  customW.addEventListener("change", function() { if (pages.length) rebuild(); });
+  customH.addEventListener("change", function() { if (pages.length) rebuild(); });
+
+  [mTop, mBottom, mLeft, mRight].forEach(function(el) {
+    el.addEventListener("change", function() { rebuild(); });
+  });
+
+  fontFamily.addEventListener("change", function() {
+    applyFontCSS();
+    rebuild();
+  });
+  fontSizeInput.addEventListener("keydown", function(e) {
+    if (e.key === "Enter") { applyFontCSS(); rebuild(); }
+  });
+  fontSizeInput.addEventListener("blur", function() { applyFontCSS(); rebuild(); });
+
+  readingCols.addEventListener("change", function() { applyReadingCSS(); if (currentMd && isReading()) renderReading(); });
+  readingPad.addEventListener("change", function() { applyReadingCSS(); if (currentMd && isReading()) renderReading(); });
+  readingScrollMode.addEventListener("change", function() {
+    if (currentMd && isReading()) { renderReading(); }
+  });
+
+  /* ── Zoom ── */
+  function calcFitScale() {
+    var rect = reader.getBoundingClientRect();
+    var padX = 60, padY = 36;
+    var avW = rect.width - padX * 2;
+    var avH = rect.height - padY * 2;
+    var dim = getPageDimsPx();
+    if (isDoubleBook()) {
+      return Math.min(avW / (dim.w * 2 + 6), avH / dim.h, 1);
+    }
+    return Math.min(avW / dim.w, avH / dim.h, 1);
+  }
+
+  function currentScale() { return autoFit ? calcFitScale() : manualScale; }
+
+  function applyZoom() {
+    if (isReading()) { zoomInput.value = "-"; return; }
+
+    var s = currentScale();
+    var dim = getPageDimsPx();
+    var scaledW = Math.round(dim.w * s);
+    var scaledH = Math.round(dim.h * s);
+
+    if (isBookMode()) {
+      var gap = isDoubleBook() ? 4 : 0;
+      var frameW = isDoubleBook() ? scaledW * 2 + gap : scaledW;
+      var viewport = bookStage.querySelector(".slide-viewport");
+      if (viewport) {
+        viewport.style.width = frameW + "px";
+        viewport.style.height = scaledH + "px";
+      }
+      bookStage.querySelectorAll(".page-wrapper").forEach(function(pw) {
+        pw.style.transform = "scale(" + s + ")";
+        pw.style.transformOrigin = "top left";
+        pw.style.width = scaledW + "px";
+        pw.style.height = scaledH + "px";
+      });
+      bookStage.querySelectorAll(".spread-frame").forEach(function(sf) {
+        sf.style.width = frameW + "px";
+      });
+      var track = bookStage.querySelector(".slide-track");
+      if (track) {
+        var step = pageStep();
+        var visIdx = (spreadStart - step >= 0) ? 1 : 0;
+        track.style.transition = "none";
+        track.style.transform = "translateX(" + (-visIdx * frameW) + "px)";
+        requestAnimationFrame(function() { track.style.transition = ""; });
+      }
+    } else {
+      /* Scroll mode */
+      document.querySelectorAll("#scrollView .page-wrapper").forEach(function(pw) {
+        pw.style.transform = "scale(" + s + ")";
+        pw.style.transformOrigin = "top center";
+        var page = pw.querySelector(".page");
+        if (page) {
+          pw.style.width = page.offsetWidth * s + "px";
+          pw.style.height = page.offsetHeight * s + "px";
+        }
+      });
+    }
+    zoomInput.value = autoFit ? "FIT" : Math.round(s * 100) + "%";
+  }
+
+  function stepZoom(delta) {
+    if (autoFit) { manualScale = calcFitScale(); autoFit = false; }
+    manualScale = Math.max(0.1, Math.min(5, manualScale + delta));
+    applyZoom();
+  }
+  zoomInBtn.addEventListener("click", function() { stepZoom(0.1); });
+  zoomOutBtn.addEventListener("click", function() { stepZoom(-0.1); });
+  zoomFitBtn.addEventListener("click", function() { autoFit = true; applyZoom(); });
+  zoomInput.addEventListener("keydown", function(e) {
+    if (e.key !== "Enter") return;
+    var raw = zoomInput.value.replace("%", "").trim();
+    if (raw.toUpperCase() === "FIT") { autoFit = true; applyZoom(); return; }
+    var pct = parseFloat(raw);
+    if (!isNaN(pct) && pct > 0) {
+      autoFit = false;
+      manualScale = Math.max(0.1, Math.min(5, pct / 100));
+      applyZoom();
+    }
+  });
+  zoomInput.addEventListener("focus", function() { zoomInput.select(); });
+  window.addEventListener("resize", function() { if (pages.length || isReading()) applyZoom(); });
+
+  /* ── Page factory ── */
+  function wrapPage(html, num, total) {
+    var wrapper = document.createElement("div");
+    wrapper.className = "page-wrapper";
+    var page = document.createElement("section");
+    page.className = "page";
+    var content = document.createElement("div");
+    content.className = "page-content";
+    content.innerHTML = html;
+    var pn = document.createElement("div");
+    pn.className = "page-number";
+    pn.textContent = num + " / " + total;
+    page.appendChild(content);
+    page.appendChild(pn);
+    wrapper.appendChild(page);
+    return wrapper;
+  }
+
+  /* ── Pagination ── */
+  function normalizeNodes(container) {
+    var out = [];
+    container.childNodes.forEach(function(n) {
+      if (n.nodeType === Node.TEXT_NODE) {
+        if (n.textContent.trim()) {
+          var p = document.createElement("p");
+          p.textContent = n.textContent;
+          out.push(p);
+        }
+      } else if (n.nodeType === Node.ELEMENT_NODE) out.push(n);
+    });
+    return out;
+  }
+
+  function paginate(md) {
+    var html = marked.parse(md || "");
+    var src = document.createElement("div");
+    src.innerHTML = html;
+    var blocks = normalizeNodes(src);
+    measureZone.innerHTML = "";
+    var pg = document.createElement("section");
+    pg.className = "page";
+    var ct = document.createElement("div");
+    ct.className = "page-content";
+    pg.appendChild(ct);
+    measureZone.appendChild(pg);
+    var result = [];
+    var overflow = function() { return ct.scrollHeight > ct.clientHeight; };
+    var flush = function() { if (ct.childNodes.length) { result.push(ct.innerHTML); ct.innerHTML = ""; } };
+    blocks.forEach(function(b) {
+      var c = b.cloneNode(true);
+      ct.appendChild(c);
+      if (!overflow()) return;
+      ct.removeChild(c);
+      if (!ct.childNodes.length) { ct.appendChild(b.cloneNode(true)); flush(); return; }
+      flush();
+      ct.appendChild(b.cloneNode(true));
+      if (overflow()) flush();
+    });
+    flush();
+    measureZone.innerHTML = "";
+    return result;
+  }
+
+  /* ── Slide builder (unified single & dual) ── */
+  function slideVisIdx() {
+    return (spreadStart - pageStep() >= 0) ? 1 : 0;
+  }
+
+  function buildSlide() {
+    bookStage.innerHTML = "";
+    if (!pages.length) return;
+
+    var s = currentScale();
+    var dim = getPageDimsPx();
+    var scaledW = Math.round(dim.w * s);
+    var scaledH = Math.round(dim.h * s);
+    var step = pageStep();
+    var gap = isDoubleBook() ? 4 : 0;
+    var frameW = isDoubleBook() ? scaledW * 2 + gap : scaledW;
+
+    var viewport = document.createElement("div");
+    viewport.className = "slide-viewport";
+    viewport.style.width = frameW + "px";
+    viewport.style.height = scaledH + "px";
+
+    var track = document.createElement("div");
+    track.className = "slide-track";
+
+    /* Collect frame start indices: [prev, current, next] */
+    var indices = [];
+    var prevIdx = spreadStart - step;
+    if (prevIdx >= 0) indices.push(prevIdx);
+    indices.push(spreadStart);
+    var nextIdx = spreadStart + step;
+    if (nextIdx < pages.length) indices.push(nextIdx);
+
+    indices.forEach(function(startIdx) {
+      if (isDoubleBook()) {
+        var frame = document.createElement("div");
+        frame.className = "spread-frame";
+        frame.style.gap = gap + "px";
+        frame.style.width = frameW + "px";
+        if (startIdx < pages.length) {
+          var pw = wrapPage(pages[startIdx], startIdx + 1, pages.length);
+          pw.style.transform = "scale(" + s + ")";
+          pw.style.transformOrigin = "top left";
+          pw.style.width = scaledW + "px";
+          pw.style.height = scaledH + "px";
+          frame.appendChild(pw);
+        }
+        if (startIdx + 1 < pages.length) {
+          var pw2 = wrapPage(pages[startIdx + 1], startIdx + 2, pages.length);
+          pw2.style.transform = "scale(" + s + ")";
+          pw2.style.transformOrigin = "top left";
+          pw2.style.width = scaledW + "px";
+          pw2.style.height = scaledH + "px";
+          frame.appendChild(pw2);
+        }
+        track.appendChild(frame);
+      } else {
+        var pw = wrapPage(pages[startIdx], startIdx + 1, pages.length);
+        pw.style.transform = "scale(" + s + ")";
+        pw.style.transformOrigin = "top left";
+        pw.style.width = scaledW + "px";
+        pw.style.height = scaledH + "px";
+        track.appendChild(pw);
+      }
+    });
+
+    var visIdx = slideVisIdx();
+    track.style.transition = "none";
+    track.style.transform = "translateX(" + (-visIdx * frameW) + "px)";
+    viewport.appendChild(track);
+    bookStage.appendChild(viewport);
+    requestAnimationFrame(function() { track.style.transition = ""; });
+  }
+
+  /* ── Renderers ── */
+  function renderScroll() {
+    scrollView.innerHTML = "";
+    pages.forEach(function(h, i) { scrollView.appendChild(wrapPage(h, i + 1, pages.length)); });
+  }
+
+  function renderReading() {
+    var isSnap = readingScrollMode.value === "snap";
+    readingView.classList.toggle("snap-mode", isSnap);
+    readingContent.innerHTML = "";
+    readingView.scrollLeft = 0;
+    readingContent.style.columnWidth = "";
+    readingContent.style.columnGap = isSnap ? "0px" : "28px";
+
+    var html = marked.parse(currentMd || "");
+    var inner = document.createElement("div");
+    inner.className = "reading-content-inner";
+    inner.innerHTML = html;
+    readingContent.appendChild(inner);
+  }
+
+  /* ── Info line ── */
+  function getReadingSnapPages() {
+    var viewW = readingView.clientWidth;
+    if (viewW <= 0) return 1;
+    return Math.max(1, Math.ceil(readingView.scrollWidth / viewW));
+  }
+  function updateInfo() {
+    if (isReading()) {
+      if (readingScrollMode.value === "snap") {
+        var viewW = readingView.clientWidth;
+        var total = getReadingSnapPages();
+        var cur = viewW > 0 ? Math.round(readingView.scrollLeft / viewW) + 1 : 1;
+        pageInfo.textContent = cur + " / " + total + " 頁";
+      } else {
+        pageInfo.textContent = "純閱讀";
+      }
+      return;
+    }
+    if (!pages.length) { pageInfo.textContent = ""; return; }
+    if (isBookMode()) {
+      var l = spreadStart + 1;
+      var r2 = isDoubleBook() ? Math.min(spreadStart + 2, pages.length) : l;
+      pageInfo.textContent = l + (r2 > l ? "-" + r2 : "") + " / " + pages.length;
+    } else {
+      pageInfo.textContent = pages.length + " 頁";
+    }
+  }
+
+  /* ── Master render switch ── */
+  function showReader() {
+    var mode = readMode.value;
+    updateToolbar();
+    reader.classList.toggle("reading-active", mode === "reading");
+
+    scrollView.classList.add("hidden");
+    bookView.classList.add("hidden");
+    readingView.classList.add("hidden");
+    emptyState.classList.add("hidden");
+
+    if (mode === "reading") {
+      if (!currentMd.trim()) { emptyState.classList.remove("hidden"); updateInfo(); return; }
+      readingView.classList.remove("hidden");
+      applyReadingCSS();
+      renderReading();
+      updateInfo();
+      return;
+    }
+
+    if (!pages.length) {
+      emptyState.classList.remove("hidden");
+      updateInfo(); return;
+    }
+
+    if (mode === "scroll") {
+      scrollView.classList.remove("hidden");
+      renderScroll();
+    } else {
+      bookView.classList.remove("hidden");
+      spreadStart = Math.max(0, Math.min(spreadStart, pages.length - 1));
+      if (isDoubleBook() && spreadStart % 2 !== 0) spreadStart--;
+      buildSlide();
+    }
+    updateInfo();
+    requestAnimationFrame(applyZoom);
+  }
+
+  function rebuild() {
+    applyPageCSS();
+    applyMarginCSS();
+    applyFontCSS();
+    var md = currentMd || (uploadedText || mdInput.value).trim();
+    if (!md) return;
+    currentMd = md;
+    pages = paginate(md);
+    spreadStart = 0;
+    autoFit = true;
+    showReader();
+  }
+
+  function build(md) {
+    currentMd = md;
+    applyPageCSS();
+    applyMarginCSS();
+    applyFontCSS();
+    pages = paginate(md.trim());
+    spreadStart = 0;
+    autoFit = true;
+    showReader();
+  }
+
+  /* ── Input tabs ── */
+  inputTabs.addEventListener("click", function(e) {
+    var btn = e.target.closest("button[data-tab]");
+    if (!btn) return;
+    inputTabs.querySelectorAll("button").forEach(function(b) { b.classList.remove("active"); });
+    btn.classList.add("active");
+    var tab = btn.dataset.tab;
+    pasteTab.classList.toggle("hidden", tab !== "paste");
+    uploadTab.classList.toggle("hidden", tab !== "upload");
+    if (tab === "paste") setTimeout(function() { mdInput.focus(); }, 50);
+  });
+
+  mdInput.addEventListener("keydown", function(e) {
+    if (e.key === "Tab") {
+      e.preventDefault();
+      var start = mdInput.selectionStart, end = mdInput.selectionEnd;
+      mdInput.value = mdInput.value.substring(0, start) + "  " + mdInput.value.substring(end);
+      mdInput.selectionStart = mdInput.selectionEnd = start + 2;
+    }
+  });
+
+  togglePanel.addEventListener("click", function() {
+    inputPanel.classList.toggle("collapsed");
+    setTimeout(function() { if (pages.length && autoFit) applyZoom(); }, 280);
+  });
+
+  renderPaste.addEventListener("click", function() {
+    var md = mdInput.value.trim();
+    if (!md) return;
+    uploadedText = "";
+    build(md);
+  });
+
+  /* ── File upload ── */
+  function handleFile(file) {
+    if (!file) return;
+    fileNameEl.textContent = file.name;
+    file.text().then(function(t) { uploadedText = t; }).catch(function() {
+      fileNameEl.textContent = "讀取失敗"; uploadedText = "";
+    });
+  }
+  fileInput.addEventListener("change", function(e) { handleFile(e.target.files[0]); });
+  dropZone.addEventListener("dragover", function(e) { e.preventDefault(); dropZone.classList.add("dragover"); });
+  dropZone.addEventListener("dragleave", function() { dropZone.classList.remove("dragover"); });
+  dropZone.addEventListener("drop", function(e) {
+    e.preventDefault(); dropZone.classList.remove("dragover");
+    var f = e.dataTransfer.files[0];
+    if (f) { fileInput.files = e.dataTransfer.files; handleFile(f); }
+  });
+  renderUpload.addEventListener("click", function() {
+    if (!uploadedText) { alert("請先上傳檔案"); return; }
+    build(uploadedText);
+  });
+
+  /* ── Sample ── */
+  sampleBtn.addEventListener("click", function() {
+    var sample = [
+      "# Markdown Reader 使用說明", "",
+      "## 快速開始",
+      "1. 在左側「貼上語法」分頁中，直接貼上 Markdown 文字。",
+      "2. 或切換到「上傳檔案」分頁，拖曳 `.md` / `.txt` 檔案到上傳區。",
+      "3. 點擊「套用並預覽」即可開始閱讀。", "",
+      "## 閱讀模式",
+      "上方工具列的「模式」下拉選單提供四種閱讀方式：", "",
+      "| 模式 | 說明 |",
+      "| ---- | ---- |",
+      "| 逐頁捲動 | 所有頁面上下排列，滑鼠滾動瀏覽 |",
+      "| 雙頁翻閱 | 左右兩頁並排，如同翻開實體書 |",
+      "| 單頁閱讀 | 一次顯示一頁，PPT 風格水平滑動 |",
+      "| 純閱讀 | 無分頁，支援多欄排版 / 翻頁式瀏覽 |", "",
+      "## 頁面設定",
+      "- **方向**：直向 / 橫向。",
+      "- **紙張**：A3、A4、B5、Letter、Legal 或自訂尺寸（mm）。",
+      "- **邊界**：上、下、左、右各別設定（cm）。",
+      "- **縮放**：點擊 +/- 或輸入百分比，FIT 可自動適應。", "",
+      "## 字型與主題",
+      "- **字型**：思源宋體、思源黑體、微軟正黑體、標楷體等。",
+      "- **字號**：支援 px、em、pt（例如 `14px`、`1.2em`、`12pt`）。",
+      "- **主題**：Dark、Light、Sepia、Dim 四種配色。", "",
+      "## 純閱讀模式進階",
+      "- **欄數**：1～4 欄自由切換。",
+      "- **捲動方式**：平滑滾動或翻頁式。",
+      "- 翻頁式下可用滑鼠滾輪、鍵盤 ← → 翻頁。", "",
+      "## 列印 / 匯出 PDF",
+      "1. 設定好紙張大小、邊界、字型後，點擊右上角「列印」。",
+      "2. 在瀏覽器列印對話框中選擇「另存為 PDF」即可匯出。",
+      "3. 所有頁面設定（紙張、邊界、字型）會自動帶入列印。", "",
+      "> 提示：點擊左上角 ☰ 按鈕可收合輸入面板，獲得更大的閱讀空間。", "",
+      "> 點擊「↺ 預設」按鈕可一鍵恢復所有設定。"
+    ].join("\n");
+    inputTabs.querySelector("[data-tab=paste]").click();
+    mdInput.value = sample;
+    build(sample);
+  });
+
+  orientation.addEventListener("change", function() { if (pages.length) rebuild(); else applyPageCSS(); });
+  readMode.addEventListener("change", function() {
+    autoFit = true;
+    showReader();
+  });
+
+  /* ── Slide animation ── */
+  function animateSlide(direction, callback) {
+    var track = bookStage.querySelector(".slide-track");
+    if (!track) { callback(); return; }
+    turnAnimating = true;
+    var s = currentScale();
+    var dim = getPageDimsPx();
+    var scaledW = Math.round(dim.w * s);
+    var gap = isDoubleBook() ? 4 : 0;
+    var frameW = isDoubleBook() ? scaledW * 2 + gap : scaledW;
+    var visIdx = slideVisIdx();
+    var targetIdx = direction === "next" ? visIdx + 1 : visIdx - 1;
+    track.style.transform = "translateX(" + (-targetIdx * frameW) + "px)";
+    track.addEventListener("transitionend", function handler() {
+      track.removeEventListener("transitionend", handler);
+      turnAnimating = false;
+      callback();
+    });
+  }
+
+  /* ── Nav buttons ── */
+  prevSpread.addEventListener("click", function() {
+    if (turnAnimating || spreadStart <= 0) return;
+    animateSlide("prev", function() {
+      spreadStart = Math.max(0, spreadStart - pageStep());
+      if (isDoubleBook() && spreadStart % 2 !== 0) spreadStart--;
+      buildSlide();
+      updateInfo();
+    });
+  });
+
+  nextSpread.addEventListener("click", function() {
+    if (turnAnimating) return;
+    var step = pageStep();
+    if (spreadStart + step >= pages.length) return;
+    animateSlide("next", function() {
+      spreadStart += step;
+      if (isDoubleBook() && spreadStart % 2 !== 0) spreadStart--;
+      if (spreadStart >= pages.length) spreadStart = pages.length - 1;
+      buildSlide();
+      updateInfo();
+    });
+  });
+
+  document.addEventListener("keydown", function(e) {
+    if (e.target.tagName === "TEXTAREA" || e.target.tagName === "INPUT") return;
+    /* Reading snap: arrow keys */
+    if (isReading() && readingScrollMode.value === "snap") {
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        var viewW = readingView.clientWidth;
+        var dir = e.key === "ArrowRight" ? 1 : -1;
+        readingView.scrollTo({ left: readingView.scrollLeft + dir * viewW, behavior: 'smooth' });
+        setTimeout(updateInfo, 450);
+      }
+      return;
+    }
+    if (!isBookMode() || !pages.length) return;
+    if (e.key === "ArrowLeft") prevSpread.click();
+    if (e.key === "ArrowRight") nextSpread.click();
+  });
+
+  reader.addEventListener("wheel", function(e) {
+    /* Reading mode: convert vertical wheel to horizontal scroll */
+    if (isReading()) {
+      if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+        e.preventDefault();
+        if (readingScrollMode.value === "snap") {
+          if (wheelLocked) return;
+          wheelLocked = true;
+          var viewW = readingView.clientWidth;
+          readingView.scrollTo({
+            left: readingView.scrollLeft + (e.deltaY > 0 ? viewW : -viewW),
+            behavior: 'smooth'
+          });
+          setTimeout(function() { wheelLocked = false; updateInfo(); }, 450);
+        } else {
+          readingView.scrollLeft += e.deltaY;
+        }
+      }
+      return;
+    }
+    if (!isBookMode() || !pages.length) return;
+    /* Allow code block to scroll first */
+    var pre = e.target.closest("pre");
+    if (pre && pre.scrollHeight > pre.clientHeight) {
+      var atTop = pre.scrollTop <= 0;
+      var atBottom = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 1;
+      if (!(atTop && e.deltaY < 0) && !(atBottom && e.deltaY > 0)) return;
+    }
+    if (Math.abs(e.deltaY) < 20) return;
+    e.preventDefault();
+    if (wheelLocked || turnAnimating) return;
+    wheelLocked = true;
+    if (e.deltaY > 0) nextSpread.click();
+    else prevSpread.click();
+    setTimeout(function() { wheelLocked = false; }, 420);
+  }, { passive: false });
+
+  /* ── Reading mode: drag-to-scroll with momentum ── */
+  (function() {
+    var isDragging = false, startX = 0, scrollStart = 0;
+    var velocityX = 0, lastX = 0, lastT = 0, rafId = 0;
+
+    readingView.addEventListener("mousedown", function(e) {
+      if (e.button !== 0 || !isReading()) return;
+      if (readingScrollMode.value === "snap") return;
+      if (e.target.closest("a, button, input, select, textarea")) return;
+      isDragging = true;
+      startX = e.clientX;
+      scrollStart = readingView.scrollLeft;
+      velocityX = 0; lastX = e.clientX; lastT = Date.now();
+      readingView.classList.add("dragging");
+      cancelAnimationFrame(rafId);
+      e.preventDefault();
+    });
+
+    window.addEventListener("mousemove", function(e) {
+      if (!isDragging) return;
+      var dx = e.clientX - startX;
+      readingView.scrollLeft = scrollStart - dx;
+      var now = Date.now();
+      var dt = now - lastT;
+      if (dt > 0) { velocityX = (lastX - e.clientX) / dt; lastX = e.clientX; lastT = now; }
+    });
+
+    window.addEventListener("mouseup", function() {
+      if (!isDragging) return;
+      isDragging = false;
+      readingView.classList.remove("dragging");
+      /* Momentum coast (both modes - snap mode CSS will handle final alignment) */
+      var v = velocityX * 16;
+      var friction = 0.94;
+      function coast() {
+        if (Math.abs(v) < 0.5) return;
+        readingView.scrollLeft += v;
+        v *= friction;
+        rafId = requestAnimationFrame(coast);
+      }
+      rafId = requestAnimationFrame(coast);
+    });
+  })();
+
+  /* ── Print ── */
+  printBtn.addEventListener("click", function() {
+    if (!pages.length) { alert("目前沒有可列印的頁面。"); return; }
+    /* Dynamic @page for paper size & margins */
+    var ps = document.getElementById('printPageStyle');
+    if (!ps) { ps = document.createElement('style'); ps.id = 'printPageStyle'; document.head.appendChild(ps); }
+    var mm = getPageDimsMM();
+    ps.textContent = '@page { size: ' + mm.w + 'mm ' + mm.h + 'mm; margin: 0; }';
+    var prev = readMode.value;
+    if (prev !== "scroll") { readMode.value = "scroll"; showReader(); }
+    document.querySelectorAll(".page pre").forEach(function(el) {
+      el.dataset.origMaxH = el.style.maxHeight;
+      el.style.maxHeight = "none";
+      el.style.overflow = "visible";
+      el.style.whiteSpace = "pre-wrap";
+    });
+    window.print();
+    document.querySelectorAll(".page pre").forEach(function(el) {
+      el.style.maxHeight = el.dataset.origMaxH || "";
+      el.style.overflow = "";
+      el.style.whiteSpace = "";
+    });
+    if (prev !== "scroll") { readMode.value = prev; showReader(); }
+  });
+
+  /* ── Reset defaults ── */
+  var DEFAULTS = {
+    readMode: 'scroll', orientation: 'portrait', pageSize: 'A4',
+    customW: '210', customH: '297',
+    marginTop: '1.6', marginBottom: '1.6', marginLeft: '1.4', marginRight: '1.4',
+    fontFamily: "'Noto Serif TC','Microsoft JhengHei',serif",
+    fontSize: '12pt', theme: 'dark',
+    readingCols: '1', readingPad: '24', readingScroll: 'smooth'
+  };
+  resetDefaults.addEventListener("click", function() {
+    readMode.value = DEFAULTS.readMode;
+    orientation.value = DEFAULTS.orientation;
+    pageSizeEl.value = DEFAULTS.pageSize;
+    customW.value = DEFAULTS.customW; customH.value = DEFAULTS.customH;
+    customSizeRow.classList.add("hidden");
+    mTop.value = DEFAULTS.marginTop; mBottom.value = DEFAULTS.marginBottom;
+    mLeft.value = DEFAULTS.marginLeft; mRight.value = DEFAULTS.marginRight;
+    fontFamily.value = DEFAULTS.fontFamily;
+    fontSizeInput.value = DEFAULTS.fontSize;
+    themeSelect.value = DEFAULTS.theme;
+    document.documentElement.dataset.theme = DEFAULTS.theme;
+    readingCols.value = DEFAULTS.readingCols;
+    readingPad.value = DEFAULTS.readingPad;
+    readingScrollMode.value = DEFAULTS.readingScroll;
+    applyPageCSS(); applyMarginCSS(); applyFontCSS(); applyReadingCSS();
+    autoFit = true;
+    if (currentMd) rebuild(); else { updateToolbar(); }
+  });
+
+  /* ── Init ── */
+  applyPageCSS();
+  applyMarginCSS();
+  applyFontCSS();
+  updateToolbar();
+  setTimeout(function() { mdInput.focus(); }, 80);
+})();
+</script>
+</body>
+</html>
