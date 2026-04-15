@@ -153,6 +153,52 @@
     .upload-actions { display: flex; gap: 6px; width: 100%; max-width: 280px; }
     .upload-actions button { flex: 1; }
 
+    /* ── TOC Panel ── */
+    .toc-panel {
+      flex-shrink: 0;
+      width: var(--toc-w, 280px);
+      display: flex; flex-direction: column;
+      background: var(--bg-surface);
+      border-right: 1px solid var(--border);
+      transition: width 0.25s ease, border-right-width 0.25s ease;
+      z-index: 4;
+      overflow: hidden;
+    }
+    .toc-panel.collapsed { width: 0; border-right-width: 0; }
+    .toc-header {
+      display: flex; align-items: center;
+      padding: 5px 8px; border-bottom: 1px solid var(--border);
+      flex-shrink: 0; white-space: nowrap;
+    }
+    .toc-title { font-weight: 700; font-size: 0.82rem; }
+    .toc-body {
+      flex: 1; overflow-y: auto; overflow-x: hidden;
+      padding: 6px 0;
+    }
+    .toc-item {
+      display: block; padding: 5px 10px;
+      font-size: 0.8rem; color: var(--ink);
+      cursor: pointer; transition: background 0.12s;
+      word-break: break-word;
+    }
+    .toc-item:hover { background: var(--accent-glow); color: var(--accent); }
+    .toc-item.active { background: var(--accent-glow); color: var(--accent); font-weight: 600; }
+    .toc-item[data-level="1"] { padding-left: 10px; font-weight: 600; font-size: 0.84rem; }
+    .toc-item[data-level="2"] { padding-left: 22px; }
+    .toc-item[data-level="3"] { padding-left: 34px; }
+    .toc-item[data-level="4"] { padding-left: 46px; }
+    .toc-item[data-level="5"] { padding-left: 58px; }
+    .toc-item[data-level="6"] { padding-left: 70px; }
+    .toc-empty { padding: 16px; color: var(--ink-dim); font-size: 0.82rem; text-align: center; }
+
+    /* ── TOC Resize Handle ── */
+    .toc-resize {
+      flex-shrink: 0; width: 5px;
+      cursor: col-resize; background: transparent;
+      transition: background 0.15s; z-index: 5;
+    }
+    .toc-resize:hover, .toc-resize.active { background: var(--accent); }
+
     /* ── Reader ── */
     .reader {
       flex: 1;
@@ -294,7 +340,7 @@
     .measure-zone { position:fixed; left:-99999px; top:0; visibility:hidden; pointer-events:none; }
 
     @media print {
-      .toolbar, .input-panel, .book-nav-btn { display:none !important; }
+      .toolbar, .input-panel, .toc-panel, .toc-resize, .book-nav-btn { display:none !important; }
       html,body,.shell,.main,.reader,.reader-content,
       .scroll-pages,.book-view,.reading-view,.reading-content {
         height:auto; overflow:visible; background:#fff;
@@ -326,6 +372,7 @@
     <span class="brand">Markdown Reader</span>
     <div class="sep"></div>
     <button id="togglePanel" title="顯示/隱藏輸入面板">&#9776;</button>
+    <button id="toggleToc" title="顯示/隱藏目錄" style="font-size:0.7rem;">目錄</button>
     <div class="sep"></div>
 
     <!-- Mode -->
@@ -480,6 +527,14 @@
       </div>
     </aside>
 
+    <aside class="toc-panel collapsed" id="tocPanel">
+      <div class="toc-header">
+        <span class="toc-title">目錄</span>
+      </div>
+      <div class="toc-body" id="tocBody"></div>
+    </aside>
+    <div class="toc-resize hidden" id="tocResize"></div>
+
     <section class="reader" id="reader">
       <div class="reader-content" id="readerContent">
         <div id="emptyState" class="empty-state">
@@ -543,6 +598,10 @@
   var measureZone    = $("measureZone");
   var readingView    = $("readingView");
   var readingContent = $("readingContent");
+  var tocPanel       = $("tocPanel");
+  var tocBody        = $("tocBody");
+  var toggleTocBtn   = $("toggleToc");
+  var tocResize      = $("tocResize");
 
   /* Toolbar groups */
   var grpOrientation = $("grpOrientation");
@@ -632,6 +691,167 @@
     r.style.setProperty("--reading-cols", readingCols.value);
     r.style.setProperty("--reading-pad", (parseInt(readingPad.value) || 24) + "px");
   }
+
+  /* ── TOC ── */
+  var cachedHtml = "";
+  var tocEntries = [];
+
+  function parseAndBuildToc(md) {
+    var raw = marked.parse(md || "");
+    var temp = document.createElement("div");
+    temp.innerHTML = raw;
+    tocEntries = [];
+    var hs = temp.querySelectorAll("h1,h2,h3,h4,h5,h6");
+    hs.forEach(function(h, i) {
+      var id = "toc-h-" + i;
+      h.id = id;
+      tocEntries.push({ id: id, level: parseInt(h.tagName.charAt(1)), text: h.textContent });
+    });
+    cachedHtml = temp.innerHTML;
+    renderToc();
+  }
+
+  function renderToc() {
+    tocBody.innerHTML = "";
+    if (!tocEntries.length) {
+      tocBody.innerHTML = '<div class="toc-empty">無標題</div>';
+      return;
+    }
+    tocEntries.forEach(function(entry) {
+      var item = document.createElement("div");
+      item.className = "toc-item";
+      item.dataset.level = entry.level;
+      item.dataset.id = entry.id;
+      item.textContent = entry.text;
+      item.title = entry.text;
+      item.addEventListener("click", function() { navigateToHeading(entry.id); });
+      tocBody.appendChild(item);
+    });
+  }
+
+  function navigateToHeading(headingId) {
+    var mode = readMode.value;
+    if (mode === "reading") {
+      var el = readingContent.querySelector("#" + headingId);
+      if (!el) return;
+      if (readingScrollMode.value === "snap") {
+        var viewW = readingView.clientWidth;
+        var elRect = el.getBoundingClientRect();
+        var viewRect = readingView.getBoundingClientRect();
+        var offsetX = elRect.left - viewRect.left + readingView.scrollLeft;
+        var targetPage = Math.floor(offsetX / viewW);
+        readingView.scrollTo({ left: targetPage * viewW, behavior: "smooth" });
+        setTimeout(updateInfo, 450);
+      } else {
+        var viewRect2 = readingView.getBoundingClientRect();
+        var elRect2 = el.getBoundingClientRect();
+        var offsetX2 = elRect2.left - viewRect2.left + readingView.scrollLeft;
+        readingView.scrollTo({ left: offsetX2 - 20, behavior: "smooth" });
+      }
+    } else if (mode === "scroll") {
+      var el2 = scrollView.querySelector("#" + headingId);
+      if (el2) el2.scrollIntoView({ behavior: "smooth", block: "center" });
+    } else {
+      for (var i = 0; i < pages.length; i++) {
+        if (pages[i].indexOf('id="' + headingId + '"') !== -1) {
+          spreadStart = isDoubleBook() ? (i - i % 2) : i;
+          buildSlide();
+          updateInfo();
+          requestAnimationFrame(applyZoom);
+          break;
+        }
+      }
+    }
+  }
+
+  /* ── Active TOC tracking ── */
+  var activeTocId = "";
+  var tocUserScrolling = false;
+  var tocUserScrollTimer = null;
+
+  tocBody.addEventListener("scroll", function() {
+    tocUserScrolling = true;
+    clearTimeout(tocUserScrollTimer);
+    tocUserScrollTimer = setTimeout(function() { tocUserScrolling = false; }, 1500);
+  }, { passive: true });
+
+  function setActiveToc(id) {
+    if (id === activeTocId) return;
+    activeTocId = id;
+    var items = tocBody.querySelectorAll(".toc-item");
+    items.forEach(function(it) { it.classList.toggle("active", it.dataset.id === id); });
+    /* auto-scroll TOC body to show active item (unless user recently scrolled) */
+    if (!tocUserScrolling && id) {
+      var activeEl = tocBody.querySelector('.toc-item[data-id="' + id + '"]');
+      if (activeEl) {
+        var bTop = tocBody.scrollTop;
+        var bH = tocBody.clientHeight;
+        var eTop = activeEl.offsetTop - tocBody.offsetTop;
+        var eH = activeEl.offsetHeight;
+        if (eTop < bTop || eTop + eH > bTop + bH) {
+          tocBody.scrollTo({ top: eTop - bH / 3, behavior: "smooth" });
+        }
+      }
+    }
+  }
+
+  function detectVisibleHeading() {
+    if (!tocEntries.length) return;
+    var mode = readMode.value;
+    var foundId = "";
+    if (mode === "reading") {
+      var viewRect = readingView.getBoundingClientRect();
+      var midX = viewRect.left + viewRect.width * 0.15; /* left 15% of view */
+      for (var i = tocEntries.length - 1; i >= 0; i--) {
+        var el = readingContent.querySelector("#" + tocEntries[i].id);
+        if (el) {
+          var r = el.getBoundingClientRect();
+          if (r.left <= midX + 10) { foundId = tocEntries[i].id; break; }
+        }
+      }
+      if (!foundId) foundId = tocEntries[0].id;
+    } else if (mode === "scroll") {
+      var rRect = reader.getBoundingClientRect();
+      var midY = rRect.top + rRect.height * 0.3;
+      for (var j = tocEntries.length - 1; j >= 0; j--) {
+        var el2 = scrollView.querySelector("#" + tocEntries[j].id);
+        if (el2) {
+          var r2 = el2.getBoundingClientRect();
+          if (r2.top <= midY) { foundId = tocEntries[j].id; break; }
+        }
+      }
+      if (!foundId) foundId = tocEntries[0].id;
+    } else { /* book modes */
+      for (var k = 0; k < tocEntries.length; k++) {
+        var step = pageStep();
+        for (var p = spreadStart; p < Math.min(spreadStart + step, pages.length); p++) {
+          if (pages[p] && pages[p].indexOf('id="' + tocEntries[k].id + '"') !== -1) {
+            foundId = tocEntries[k].id;
+          }
+        }
+      }
+      if (!foundId) {
+        /* find last heading before current spread */
+        for (var m = 0; m < tocEntries.length; m++) {
+          for (var pp = 0; pp <= spreadStart; pp++) {
+            if (pages[pp] && pages[pp].indexOf('id="' + tocEntries[m].id + '"') !== -1) {
+              foundId = tocEntries[m].id;
+            }
+          }
+        }
+      }
+    }
+    setActiveToc(foundId);
+  }
+
+  /* Throttled scroll listener */
+  var detectRaf = 0;
+  function onContentScroll() {
+    if (detectRaf) return;
+    detectRaf = requestAnimationFrame(function() { detectRaf = 0; detectVisibleHeading(); });
+  }
+  reader.addEventListener("scroll", onContentScroll, { passive: true });
+  readingView.addEventListener("scroll", onContentScroll, { passive: true });
 
   /* ── marked ── */
   marked.setOptions({ gfm: true, breaks: true });
@@ -812,7 +1032,7 @@
   }
 
   function paginate(md) {
-    var html = marked.parse(md || "");
+    var html = cachedHtml || marked.parse(md || "");
     var src = document.createElement("div");
     src.innerHTML = html;
     var blocks = normalizeNodes(src);
@@ -929,7 +1149,7 @@
     readingContent.style.columnWidth = "";
     readingContent.style.columnGap = isSnap ? "0px" : "28px";
 
-    var html = marked.parse(currentMd || "");
+    var html = cachedHtml || marked.parse(currentMd || "");
     var inner = document.createElement("div");
     inner.className = "reading-content-inner";
     inner.innerHTML = html;
@@ -981,6 +1201,7 @@
       applyReadingCSS();
       renderReading();
       updateInfo();
+      setTimeout(detectVisibleHeading, 100);
       return;
     }
 
@@ -1000,6 +1221,7 @@
     }
     updateInfo();
     requestAnimationFrame(applyZoom);
+    setTimeout(detectVisibleHeading, 100);
   }
 
   function rebuild() {
@@ -1017,6 +1239,7 @@
 
   function build(md) {
     currentMd = md;
+    parseAndBuildToc(md);
     applyPageCSS();
     applyMarginCSS();
     applyFontCSS();
@@ -1024,6 +1247,15 @@
     spreadStart = 0;
     autoFit = true;
     showReader();
+    /* Auto: collapse input, show TOC */
+    if (!inputPanel.classList.contains("collapsed")) {
+      inputPanel.classList.add("collapsed");
+    }
+    if (tocEntries.length && tocPanel.classList.contains("collapsed")) {
+      tocPanel.classList.remove("collapsed");
+      toggleEl(tocResize, true);
+    }
+    setTimeout(function() { if (autoFit) applyZoom(); }, 300);
   }
 
   /* ── Input tabs ── */
@@ -1048,9 +1280,79 @@
   });
 
   togglePanel.addEventListener("click", function() {
-    inputPanel.classList.toggle("collapsed");
-    setTimeout(function() { if (pages.length && autoFit) applyZoom(); }, 280);
+    snapPreserve(function() {
+      inputPanel.classList.toggle("collapsed");
+    });
   });
+
+  /* Helper: preserve snap page across layout changes */
+  function snapPreserve(fn, delay) {
+    var curPage = 0;
+    if (isReading() && readingScrollMode.value === "snap") {
+      var vw = readingView.clientWidth;
+      curPage = vw > 0 ? Math.round(readingView.scrollLeft / vw) : 0;
+    }
+    fn();
+    setTimeout(function() {
+      if ((pages.length || isReading()) && autoFit) applyZoom();
+      if (isReading() && readingScrollMode.value === "snap") {
+        var newVw = readingView.clientWidth;
+        readingView.scrollTo({ left: curPage * newVw, behavior: "instant" });
+      }
+      updateInfo();
+    }, delay || 280);
+  }
+
+  toggleTocBtn.addEventListener("click", function() {
+    snapPreserve(function() {
+      tocPanel.classList.toggle("collapsed");
+      var isCollapsed = tocPanel.classList.contains("collapsed");
+      toggleEl(tocResize, !isCollapsed);
+    });
+  });
+
+  /* ── TOC resize ── */
+  (function() {
+    var resizing = false, startX = 0, startW = 0;
+    var snapPage = 0;
+    tocResize.addEventListener("mousedown", function(e) {
+      e.preventDefault();
+      resizing = true;
+      startX = e.clientX;
+      startW = tocPanel.offsetWidth;
+      tocResize.classList.add("active");
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+      /* remember snap page before resize */
+      if (isReading() && readingScrollMode.value === "snap") {
+        var vw = readingView.clientWidth;
+        snapPage = vw > 0 ? Math.round(readingView.scrollLeft / vw) : 0;
+      }
+    });
+    window.addEventListener("mousemove", function(e) {
+      if (!resizing) return;
+      var newW = Math.max(180, Math.min(600, startW + (e.clientX - startX)));
+      tocPanel.style.setProperty("--toc-w", newW + "px");
+      /* live re-snap during drag for snap mode */
+      if (isReading() && readingScrollMode.value === "snap") {
+        var vw = readingView.clientWidth;
+        readingView.scrollLeft = snapPage * vw;
+      }
+    });
+    window.addEventListener("mouseup", function() {
+      if (!resizing) return;
+      resizing = false;
+      tocResize.classList.remove("active");
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      if ((pages.length || isReading()) && autoFit) setTimeout(function() { applyZoom(); updateInfo(); }, 50);
+      if (isReading() && readingScrollMode.value === "snap") {
+        var vw = readingView.clientWidth;
+        readingView.scrollTo({ left: snapPage * vw, behavior: "instant" });
+        setTimeout(updateInfo, 60);
+      }
+    });
+  })();
 
   renderPaste.addEventListener("click", function() {
     var md = mdInput.value.trim();
@@ -1087,7 +1389,7 @@
       "## 快速開始",
       "1. 在左側「貼上語法」分頁中，直接貼上 Markdown 文字。",
       "2. 或切換到「上傳檔案」分頁，拖曳 `.md` / `.txt` 檔案到上傳區。",
-      "3. 點擊「套用並預覽」即可開始閱讀。", "",
+      "3. 點擊「套用並預覽」後，系統會自動分頁並產生目錄。", "",
       "## 閱讀模式",
       "上方工具列的「模式」下拉選單提供四種閱讀方式：", "",
       "| 模式 | 說明 |",
@@ -1096,6 +1398,10 @@
       "| 雙頁翻閱 | 左右兩頁並排，如同翻開實體書 |",
       "| 單頁閱讀 | 一次顯示一頁，PPT 風格水平滑動 |",
       "| 純閱讀 | 無分頁，支援多欄排版 / 翻頁式瀏覽 |", "",
+      "## 目錄與版面",
+      "- 點擊上方「目錄」可開啟章節清單，點選標題可快速跳轉。",
+      "- 目錄面板右側可拖曳調整寬度。",
+      "- 點擊左上角 `☰` 可收合輸入面板，保留更大的閱讀空間。", "",
       "## 頁面設定",
       "- **方向**：直向 / 橫向。",
       "- **紙張**：A3、A4、B5、Letter、Legal 或自訂尺寸（mm）。",
@@ -1108,13 +1414,16 @@
       "## 純閱讀模式進階",
       "- **欄數**：1～4 欄自由切換。",
       "- **捲動方式**：平滑滾動或翻頁式。",
+      "- 平滑滾動時可用滑鼠拖曳內容左右移動。",
       "- 翻頁式下可用滑鼠滾輪、鍵盤 ← → 翻頁。", "",
       "## 列印 / 匯出 PDF",
-      "1. 設定好紙張大小、邊界、字型後，點擊右上角「列印」。",
-      "2. 在瀏覽器列印對話框中選擇「另存為 PDF」即可匯出。",
-      "3. 所有頁面設定（紙張、邊界、字型）會自動帶入列印。", "",
-      "> 提示：點擊左上角 ☰ 按鈕可收合輸入面板，獲得更大的閱讀空間。", "",
-      "> 點擊「↺ 預設」按鈕可一鍵恢復所有設定。"
+      "1. 請先切換到「逐頁捲動 / 雙頁翻閱 / 單頁閱讀」其中一種分頁模式。",
+      "2. 設定好紙張大小、邊界、字型後，點擊右上角「列印」。",
+      "3. 在瀏覽器列印對話框中選擇「另存為 PDF」即可匯出。",
+      "4. 所有頁面設定（紙張、邊界、字型）會自動帶入列印。", "",
+      "## 小提示",
+      "- 點擊「↺ 預設」按鈕可一鍵恢復所有設定。",
+      "- 如果 Markdown 有標題層級，右側可搭配目錄快速跳讀。"
     ].join("\n");
     inputTabs.querySelector("[data-tab=paste]").click();
     mdInput.value = sample;
@@ -1155,6 +1464,7 @@
       if (isDoubleBook() && spreadStart % 2 !== 0) spreadStart--;
       buildSlide();
       updateInfo();
+      detectVisibleHeading();
     });
   });
 
@@ -1168,6 +1478,7 @@
       if (spreadStart >= pages.length) spreadStart = pages.length - 1;
       buildSlide();
       updateInfo();
+      detectVisibleHeading();
     });
   });
 
@@ -1179,7 +1490,7 @@
         var viewW = readingView.clientWidth;
         var dir = e.key === "ArrowRight" ? 1 : -1;
         readingView.scrollTo({ left: readingView.scrollLeft + dir * viewW, behavior: 'smooth' });
-        setTimeout(updateInfo, 450);
+        setTimeout(function() { updateInfo(); detectVisibleHeading(); }, 450);
       }
       return;
     }
@@ -1201,7 +1512,7 @@
             left: readingView.scrollLeft + (e.deltaY > 0 ? viewW : -viewW),
             behavior: 'smooth'
           });
-          setTimeout(function() { wheelLocked = false; updateInfo(); }, 450);
+          setTimeout(function() { wheelLocked = false; updateInfo(); detectVisibleHeading(); }, 450);
         } else {
           readingView.scrollLeft += e.deltaY;
         }
