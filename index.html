@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Markdown Reader</title>
   <script src="assets/vendor/marked.min.js"></script>
+  <script src="assets/vendor/mermaid.min.js"></script>
   <link rel="stylesheet" href="assets/fonts/google-fonts.css" />
   <style>
     :root {
@@ -341,6 +342,13 @@
     .empty-state .big-icon { font-size:3rem; opacity:0.25; }
     .empty-state p { font-size:0.88rem; }
     .hidden { display:none !important; }
+    /* ── Mermaid ── */
+    .mermaid-container { text-align: center; margin: .5em 0; break-inside: avoid; }
+    .mermaid-container svg { max-width: 100%; height: auto; }
+    .page .mermaid-container svg {
+      max-height: calc(var(--page-h) - var(--page-pt) - var(--page-pb) - 16mm);
+      width: auto;
+    }
     .measure-zone { position:fixed; left:-99999px; top:0; visibility:hidden; pointer-events:none; }
 
     @media print {
@@ -1176,13 +1184,27 @@
     var result = [];
     var overflow = function() { return ct.scrollHeight > ct.clientHeight; };
     var flush = function() { if (ct.childNodes.length) { result.push(ct.innerHTML); ct.innerHTML = ""; } };
+    /* Orphan heading guard: if page ends with a heading, carry it to next page */
+    var rescueOrphanHeading = function() {
+      var last = ct.lastElementChild;
+      if (!last) return null;
+      if (/^H[1-6]$/.test(last.tagName)) {
+        var saved = last.cloneNode(true);
+        ct.removeChild(last);
+        return saved;
+      }
+      return null;
+    };
     blocks.forEach(function(b) {
       appendBlockWithPaging(ct, b, flush);
       if (!overflow()) return;
 
       ct.removeChild(ct.lastChild);
       if (!ct.childNodes.length) { appendBlockWithPaging(ct, b, flush); flush(); return; }
+      /* Check if an orphan heading sits at bottom before flushing */
+      var orphan = rescueOrphanHeading();
       flush();
+      if (orphan) ct.appendChild(orphan);
       appendBlockWithPaging(ct, b, flush);
       if (overflow()) flush();
     });
@@ -1361,31 +1383,36 @@
     var md = currentMd || (uploadedText || mdInput.value).trim();
     if (!md) return;
     currentMd = md;
-    pages = paginate(md);
-    spreadStart = 0;
-    autoFit = true;
-    showReader();
+    parseAndBuildToc(md);
+    preRenderMermaid().then(function() {
+      pages = paginate(md);
+      spreadStart = 0;
+      autoFit = true;
+      showReader();
+    });
   }
 
   function build(md) {
     currentMd = md;
     parseAndBuildToc(md);
-    applyPageCSS();
-    applyMarginCSS();
-    applyFontCSS();
-    pages = paginate(md.trim());
-    spreadStart = 0;
-    autoFit = true;
-    showReader();
-    /* Auto: collapse input, show TOC */
-    if (!inputPanel.classList.contains("collapsed")) {
-      inputPanel.classList.add("collapsed");
-    }
-    if (tocEntries.length && tocPanel.classList.contains("collapsed")) {
-      tocPanel.classList.remove("collapsed");
-      toggleEl(tocResize, true);
-    }
-    setTimeout(function() { if (autoFit) applyZoom(); }, 300);
+    preRenderMermaid().then(function() {
+      applyPageCSS();
+      applyMarginCSS();
+      applyFontCSS();
+      pages = paginate(md.trim());
+      spreadStart = 0;
+      autoFit = true;
+      showReader();
+      /* Auto: collapse input, show TOC */
+      if (!inputPanel.classList.contains("collapsed")) {
+        inputPanel.classList.add("collapsed");
+      }
+      if (tocEntries.length && tocPanel.classList.contains("collapsed")) {
+        tocPanel.classList.remove("collapsed");
+        toggleEl(tocResize, true);
+      }
+      setTimeout(function() { if (autoFit) applyZoom(); }, 300);
+    });
   }
 
   /* ── Input tabs ── */
@@ -1763,6 +1790,40 @@
     autoFit = true;
     if (currentMd) rebuild(); else { updateToolbar(); }
   });
+
+  /* ── Mermaid ── */
+  var mermaidReady = false;
+  try {
+    mermaid.initialize({ startOnLoad: false, theme: 'neutral', securityLevel: 'loose' });
+    mermaidReady = true;
+  } catch (e) { /* mermaid load failed, will fallback */ }
+
+  var mermaidIdCounter = 0;
+
+  function preRenderMermaid() {
+    if (!mermaidReady) return Promise.resolve();
+    var temp = document.createElement('div');
+    temp.innerHTML = cachedHtml;
+    var codes = temp.querySelectorAll('code.language-mermaid');
+    if (!codes.length) return Promise.resolve();
+    var promises = [];
+    codes.forEach(function(code) {
+      var pre = code.parentElement;
+      if (!pre || pre.tagName !== 'PRE') return;
+      var src = code.textContent;
+      var id = 'mermaid-pre-' + (++mermaidIdCounter);
+      var p = mermaid.render(id, src).then(function(result) {
+        var div = document.createElement('div');
+        div.className = 'mermaid-container';
+        div.innerHTML = result.svg;
+        pre.parentNode.replaceChild(div, pre);
+      }).catch(function() { /* keep original code block */ });
+      promises.push(p);
+    });
+    return Promise.all(promises).then(function() {
+      cachedHtml = temp.innerHTML;
+    });
+  }
 
   /* ── Init ── */
   applyPageCSS();
