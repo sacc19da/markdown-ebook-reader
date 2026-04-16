@@ -928,7 +928,7 @@
   /* ── Zoom ── */
   function calcFitScale() {
     var rect = reader.getBoundingClientRect();
-    var padX = 60, padY = 36;
+    var padX = Math.min(60, rect.width * 0.03), padY = 36;
     var avW = rect.width - padX * 2;
     var avH = rect.height - padY * 2;
     var dim = getPageDimsPx();
@@ -977,12 +977,9 @@
       /* Scroll mode */
       document.querySelectorAll("#scrollView .page-wrapper").forEach(function(pw) {
         pw.style.transform = "scale(" + s + ")";
-        pw.style.transformOrigin = "top center";
-        var page = pw.querySelector(".page");
-        if (page) {
-          pw.style.width = page.offsetWidth * s + "px";
-          pw.style.height = page.offsetHeight * s + "px";
-        }
+        pw.style.transformOrigin = "top left";
+        pw.style.width = scaledW + "px";
+        pw.style.height = scaledH + "px";
       });
     }
     zoomInput.value = autoFit ? "FIT" : Math.round(s * 100) + "%";
