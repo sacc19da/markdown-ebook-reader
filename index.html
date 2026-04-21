@@ -256,6 +256,8 @@
       font-family: var(--page-font-family);
       font-size: var(--page-font-size);
       line-height: 1.55;
+      overflow-wrap: break-word;
+      word-break: break-word;
     }
     .page-number {
       position: absolute; bottom: 8mm; right: 12mm;
@@ -265,10 +267,10 @@
     .page ol,.page ul { padding-left:1.8em; margin-top:.35em; margin-bottom:.35em; }
     .page p,.page li,.page pre,.page blockquote,.page table { margin-top:.35em; margin-bottom:.35em; }
     .page pre,.page code { font-family:"Consolas","Courier New",monospace; }
-    .page pre { background:#f4f7f9; border:1px solid #d4dee8; border-radius:6px; padding:9px; overflow-y:auto; max-height:45%; white-space:pre-wrap; word-wrap:break-word; }
+    .page pre { background:#f4f7f9; border:1px solid #d4dee8; border-radius:6px; padding:9px; overflow-y:auto; max-height:calc(var(--page-h) - var(--page-pt) - var(--page-pb) - 4px); white-space:pre-wrap; word-wrap:break-word; }
     .page blockquote { border-left:4px solid #c5d3de; padding-left:10px; color:#3b4b58; }
-    .page table { width:100%; border-collapse:collapse; font-size:10pt; }
-    .page th,.page td { border:1px solid #cdd7df; padding:5px; vertical-align:top; }
+    .page table { width:100%; border-collapse:collapse; font-size:10pt; table-layout:fixed; }
+    .page th,.page td { border:1px solid #cdd7df; padding:5px; vertical-align:top; word-break:break-word; overflow-wrap:break-word; }
     .page img { max-width:100%; max-height:60%; object-fit:contain; display:block; margin:.3em auto; }
 
     /* ── Slide animation (shared single & dual) ── */
@@ -305,6 +307,8 @@
       line-height: 1.65;
       color: var(--reading-ink, var(--ink));
       background: var(--reading-bg, var(--bg));
+      overflow-wrap: break-word;
+      word-break: break-word;
     }
     /* Inner wrapper for padding (so column-width = view width exactly) */
     .reading-content-inner {
@@ -325,14 +329,14 @@
     .reading-content pre,.reading-content code { font-family:"Consolas","Courier New",monospace; }
     .reading-content pre {
       background: var(--bg-elevated); border: 1px solid var(--border);
-      border-radius: 6px; padding: 9px; overflow: visible; break-inside: auto;
-      page-break-inside: auto; -webkit-column-break-inside: auto;
+      border-radius: 6px; padding: 9px; overflow-y: auto; overflow-x: auto;
+      max-height: 60vh; break-inside: avoid;
       white-space: pre-wrap; word-wrap: break-word;
     }
     .reading-content blockquote { border-left:4px solid var(--accent); padding-left:10px; color: var(--ink-dim); }
-    .reading-content table { width:100%; border-collapse:collapse; font-size:0.9em; break-inside:avoid; }
-    .reading-content th,.reading-content td { border:1px solid var(--border); padding:5px; }
-    .reading-content img { max-width:100%; display:block; margin:.5em auto; break-inside:avoid; }
+    .reading-content table { width:100%; border-collapse:collapse; font-size:0.9em; table-layout:fixed; }
+    .reading-content th,.reading-content td { border:1px solid var(--border); padding:5px; word-break:break-word; overflow-wrap:break-word; }
+    .reading-content img { max-width:100%; max-height:60vh; object-fit:contain; display:block; margin:.5em auto; break-inside:avoid; }
 
     /* ── Misc ── */
     .empty-state {
