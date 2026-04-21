@@ -291,7 +291,6 @@
     .reading-view.snap-mode {
       overflow: hidden;
     }
-    .reading-view.dragging { user-select: none; }
     .reader.reading-active { overflow: hidden; }
     .reader.reading-active .reader-content { height: 100%; }
 
@@ -1694,50 +1693,6 @@
     else prevSpread.click();
     setTimeout(function() { wheelLocked = false; }, 420);
   }, { passive: false });
-
-  /* ── Reading mode: drag-to-scroll with momentum ── */
-  (function() {
-    var isDragging = false, startX = 0, scrollStart = 0;
-    var velocityX = 0, lastX = 0, lastT = 0, rafId = 0;
-
-    readingView.addEventListener("mousedown", function(e) {
-      if (e.button !== 0 || !isReading()) return;
-      if (readingScrollMode.value === "snap") return;
-      if (e.target.closest("a, button, input, select, textarea")) return;
-      isDragging = true;
-      startX = e.clientX;
-      scrollStart = readingView.scrollLeft;
-      velocityX = 0; lastX = e.clientX; lastT = Date.now();
-      readingView.classList.add("dragging");
-      cancelAnimationFrame(rafId);
-      e.preventDefault();
-    });
-
-    window.addEventListener("mousemove", function(e) {
-      if (!isDragging) return;
-      var dx = e.clientX - startX;
-      readingView.scrollLeft = scrollStart - dx;
-      var now = Date.now();
-      var dt = now - lastT;
-      if (dt > 0) { velocityX = (lastX - e.clientX) / dt; lastX = e.clientX; lastT = now; }
-    });
-
-    window.addEventListener("mouseup", function() {
-      if (!isDragging) return;
-      isDragging = false;
-      readingView.classList.remove("dragging");
-      /* Momentum coast (both modes - snap mode CSS will handle final alignment) */
-      var v = velocityX * 16;
-      var friction = 0.94;
-      function coast() {
-        if (Math.abs(v) < 0.5) return;
-        readingView.scrollLeft += v;
-        v *= friction;
-        rafId = requestAnimationFrame(coast);
-      }
-      rafId = requestAnimationFrame(coast);
-    });
-  })();
 
   /* ── Print ── */
   printBtn.addEventListener("click", function() {
